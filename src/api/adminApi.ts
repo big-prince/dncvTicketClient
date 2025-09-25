@@ -28,6 +28,13 @@ export const adminApi = {
     return response.data;
   },
 
+  getApprovedPayments: async (page = 1, limit = 20) => {
+    const response = await api.get(
+      `/api/admin/payments/approved?page=${page}&limit=${limit}`
+    );
+    return response.data;
+  },
+
   approvePayment: async (reference: string) => {
     const response = await api.post(`/api/admin/payments/${reference}/approve`);
     return response.data;

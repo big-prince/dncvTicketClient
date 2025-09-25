@@ -38,10 +38,13 @@ interface Payment {
     method: string;
     status: string;
     amount: number;
-    transferMarkedAt: string;
+    transferMarkedAt?: string;
+    paidAt?: string;
+    approvedBy?: string;
   };
   createdAt: string;
-  daysPending: number;
+  daysPending?: number;
+  qrCode?: string;
 }
 
 interface PaginationInfo {
@@ -61,9 +64,9 @@ const PaymentsPage: React.FC = () => {
   const [sortBy, setSortBy] = useState<"newest" | "oldest" | "amount">(
     "newest"
   );
-  const [filterStatus, setFilterStatus] = useState<
-    "all" | "pending" | "urgent"
-  >("all");
+  const [filterStatus, setFilterStatus] = useState<"approved" | "pending">(
+    "approved"
+  );
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [processingPayments, setProcessingPayments] = useState<Set<string>>(
@@ -73,7 +76,10 @@ const PaymentsPage: React.FC = () => {
   const loadPayments = useCallback(async () => {
     try {
       setIsLoading(true);
-      const response = await adminApi.getPendingPayments(currentPage, 20);
+      const response =
+        filterStatus === "pending"
+          ? await adminApi.getPendingPayments(currentPage, 20)
+          : await adminApi.getApprovedPayments(currentPage, 20);
 
       if (response.success) {
         setPayments(response.data.payments);
@@ -87,7 +93,7 @@ const PaymentsPage: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage]);
+  }, [currentPage, filterStatus]);
 
   useEffect(() => {
     loadPayments();
@@ -202,12 +208,7 @@ const PaymentsPage: React.FC = () => {
         .includes(searchTerm.toLowerCase()) ||
       payment.reference.toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesFilter =
-      filterStatus === "all" ||
-      (filterStatus === "pending" && payment.daysPending < 3) ||
-      (filterStatus === "urgent" && payment.daysPending >= 3);
-
-    return matchesSearch && matchesFilter;
+    return matchesSearch;
   });
 
   const sortedPayments = [...filteredPayments].sort((a, b) => {
@@ -243,7 +244,7 @@ const PaymentsPage: React.FC = () => {
                 Payment Management
               </motion.h1>
               <p className="text-gray-300 text-lg">
-                Review and process pending bank transfers
+                View approved payments and manage pending bank transfers
               </p>
             </div>
             <div className="flex items-center gap-4 mt-4 md:mt-0">
@@ -285,13 +286,12 @@ const PaymentsPage: React.FC = () => {
             <select
               value={filterStatus}
               onChange={(e) =>
-                setFilterStatus(e.target.value as "all" | "pending" | "urgent")
+                setFilterStatus(e.target.value as "approved" | "pending")
               }
               className="px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:border-amber-500"
             >
-              <option value="all">All Payments</option>
-              <option value="pending">Pending (Recent)</option>
-              <option value="urgent">Urgent (3+ days)</option>
+              <option value="approved">Approved Payments</option>
+              <option value="pending">Pending Payments</option>
             </select>
 
             {/* Sort */}
@@ -346,11 +346,15 @@ const PaymentsPage: React.FC = () => {
                           {payment.customerInfo.name}
                         </span>
                         <span
-                          className={`px-2 py-1 text-xs rounded-full border ${getPriorityColor(
-                            payment.daysPending
-                          )}`}
+                          className={`px-2 py-1 text-xs rounded-full border ${
+                            filterStatus === "approved"
+                              ? "text-green-400 bg-green-500/10 border-green-500/20"
+                              : getPriorityColor(payment.daysPending || 0)
+                          }`}
                         >
-                          {getPriorityLabel(payment.daysPending)}
+                          {filterStatus === "approved"
+                            ? "Approved"
+                            : getPriorityLabel(payment.daysPending || 0)}
                         </span>
                       </div>
                       <div className="space-y-1 text-sm text-gray-400">
@@ -430,13 +434,23 @@ const PaymentsPage: React.FC = () => {
                         <div className="flex items-center gap-2">
                           <Calendar className="w-4 h-4" />
                           <span>
-                            {formatDate(payment.paymentInfo.transferMarkedAt)}
+                            {filterStatus === "approved"
+                              ? formatDate(payment.paymentInfo.paidAt || "")
+                              : formatDate(
+                                  payment.paymentInfo.transferMarkedAt || ""
+                                )}
                           </span>
                         </div>
-                        <div className="text-yellow-400">
-                          {payment.daysPending} day
-                          {payment.daysPending !== 1 ? "s" : ""} pending
-                        </div>
+                        {filterStatus === "approved" ? (
+                          <div className="text-green-400">
+                            Approved by {payment.paymentInfo.approvedBy}
+                          </div>
+                        ) : (
+                          <div className="text-yellow-400">
+                            {payment.daysPending} day
+                            {payment.daysPending !== 1 ? "s" : ""} pending
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -454,31 +468,35 @@ const PaymentsPage: React.FC = () => {
                       View
                     </button>
 
-                    <button
-                      onClick={() => handleRejectPayment(payment)}
-                      disabled={processingPayments.has(payment.reference)}
-                      className="flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 text-red-400 rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      {processingPayments.has(payment.reference) ? (
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <XCircle className="w-4 h-4" />
-                      )}
-                      Reject
-                    </button>
+                    {filterStatus === "pending" && (
+                      <>
+                        <button
+                          onClick={() => handleRejectPayment(payment)}
+                          disabled={processingPayments.has(payment.reference)}
+                          className="flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 text-red-400 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          {processingPayments.has(payment.reference) ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <XCircle className="w-4 h-4" />
+                          )}
+                          Reject
+                        </button>
 
-                    <button
-                      onClick={() => handleApprovePayment(payment)}
-                      disabled={processingPayments.has(payment.reference)}
-                      className="flex items-center gap-2 px-4 py-2 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 hover:border-green-500/40 text-green-400 rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      {processingPayments.has(payment.reference) ? (
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <CheckCircle className="w-4 h-4" />
-                      )}
-                      Approve
-                    </button>
+                        <button
+                          onClick={() => handleApprovePayment(payment)}
+                          disabled={processingPayments.has(payment.reference)}
+                          className="flex items-center gap-2 px-4 py-2 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 hover:border-green-500/40 text-green-400 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          {processingPayments.has(payment.reference) ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle className="w-4 h-4" />
+                          )}
+                          Approve
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </motion.div>
@@ -637,59 +655,82 @@ const PaymentsPage: React.FC = () => {
                         <span className="text-gray-400">Amount:</span>{" "}
                         {formatCurrency(selectedPayment.paymentInfo.amount)}
                       </div>
-                      <div>
-                        <span className="text-gray-400">Transfer Marked:</span>{" "}
-                        {formatDate(
-                          selectedPayment.paymentInfo.transferMarkedAt
-                        )}
-                      </div>
-                      <div>
-                        <span className="text-gray-400">Days Pending:</span>
-                        <span
-                          className={`ml-1 ${
-                            selectedPayment.daysPending >= 3
-                              ? "text-red-400"
-                              : selectedPayment.daysPending >= 1
-                              ? "text-yellow-400"
-                              : "text-green-400"
-                          }`}
-                        >
-                          {selectedPayment.daysPending} day
-                          {selectedPayment.daysPending !== 1 ? "s" : ""}
-                        </span>
-                      </div>
+                      {filterStatus === "approved" ? (
+                        <>
+                          <div>
+                            <span className="text-gray-400">Paid At:</span>{" "}
+                            {formatDate(
+                              selectedPayment.paymentInfo.paidAt || ""
+                            )}
+                          </div>
+                          <div>
+                            <span className="text-gray-400">Approved By:</span>{" "}
+                            {selectedPayment.paymentInfo.approvedBy}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div>
+                            <span className="text-gray-400">
+                              Transfer Marked:
+                            </span>{" "}
+                            {formatDate(
+                              selectedPayment.paymentInfo.transferMarkedAt || ""
+                            )}
+                          </div>
+                          <div>
+                            <span className="text-gray-400">Days Pending:</span>
+                            <span
+                              className={`ml-1 ${
+                                (selectedPayment.daysPending || 0) >= 3
+                                  ? "text-red-400"
+                                  : (selectedPayment.daysPending || 0) >= 1
+                                  ? "text-yellow-400"
+                                  : "text-green-400"
+                              }`}
+                            >
+                              {selectedPayment.daysPending} day
+                              {(selectedPayment.daysPending || 0) !== 1
+                                ? "s"
+                                : ""}
+                            </span>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
 
-                  <div className="flex gap-3 mt-6">
-                    <button
-                      onClick={() => {
-                        handleRejectPayment(selectedPayment);
-                        setShowDetailModal(false);
-                      }}
-                      disabled={processingPayments.has(
-                        selectedPayment.reference
-                      )}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 text-red-400 rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      <XCircle className="w-4 h-4" />
-                      Reject
-                    </button>
+                  {filterStatus === "pending" && (
+                    <div className="flex gap-3 mt-6">
+                      <button
+                        onClick={() => {
+                          handleRejectPayment(selectedPayment);
+                          setShowDetailModal(false);
+                        }}
+                        disabled={processingPayments.has(
+                          selectedPayment.reference
+                        )}
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 text-red-400 rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        <XCircle className="w-4 h-4" />
+                        Reject
+                      </button>
 
-                    <button
-                      onClick={() => {
-                        handleApprovePayment(selectedPayment);
-                        setShowDetailModal(false);
-                      }}
-                      disabled={processingPayments.has(
-                        selectedPayment.reference
-                      )}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 hover:border-green-500/40 text-green-400 rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      <CheckCircle className="w-4 h-4" />
-                      Approve
-                    </button>
-                  </div>
+                      <button
+                        onClick={() => {
+                          handleApprovePayment(selectedPayment);
+                          setShowDetailModal(false);
+                        }}
+                        disabled={processingPayments.has(
+                          selectedPayment.reference
+                        )}
+                        className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 hover:border-green-500/40 text-green-400 rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        <CheckCircle className="w-4 h-4" />
+                        Approve
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </motion.div>
