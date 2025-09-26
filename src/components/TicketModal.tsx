@@ -118,11 +118,50 @@ const TicketModal: React.FC<TicketModalProps> = ({
           setTimeout(() => {
             handleClose();
           }, 6000);
+        } else if (completedResponse.rateLimited) {
+          toast.error(
+            completedResponse.message || "Please wait before trying again."
+          );
+        } else {
+          toast.error(
+            completedResponse.message || "Failed to confirm transfer."
+          );
         }
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error("Transfer completion error:", error);
-      toast.error("Failed to process transfer. Please try again.");
+
+      const errorResponse = (
+        error as {
+          response?: {
+            status?: number;
+            data?: {
+              rateLimited?: boolean;
+              waitTime?: number;
+              message?: string;
+            };
+          };
+        }
+      )?.response;
+
+      if (errorResponse?.status === 429) {
+        const errorData = errorResponse.data;
+        if (errorData?.rateLimited) {
+          const message =
+            errorData.message ||
+            `Please wait 2 minutes before trying again. We received your request.`;
+          toast.error(message);
+        } else {
+          toast.error(
+            "Too many attempts. Please wait 2 minutes before trying again."
+          );
+        }
+      } else {
+        toast.error(
+          errorResponse?.data?.message ||
+            "Failed to process transfer. Please try again."
+        );
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -414,8 +453,8 @@ const TicketModal: React.FC<TicketModalProps> = ({
                         verify your payment.
                       </p>
                       <p className="text-sm text-green-200 text-center font-semibold">
-                        Please contact Jack (+234 814 934 9466) or Elvis (+234 806 868 3392) 
-                        to follow up on your payment verification.
+                        Please contact Jack (+234 814 934 9466) or Elvis (+234
+                        806 868 3392) to follow up on your payment verification.
                       </p>
                     </div>
                   )}
@@ -439,8 +478,9 @@ const TicketModal: React.FC<TicketModalProps> = ({
                         </li>
                         <li>You'll get your unique payment reference</li>
                         <li>
-                          After clicking "Transfer Done", contact Jack (+234 814 934 9466) 
-                          or Elvis (+234 806 868 3392) to follow up on your payment
+                          After clicking "Transfer Done", contact Jack (+234 814
+                          934 9466) or Elvis (+234 806 868 3392) to follow up on
+                          your payment
                         </li>
                         <li>
                           You'll receive your e-ticket to your email once we
@@ -491,8 +531,9 @@ const TicketModal: React.FC<TicketModalProps> = ({
                       <span className="font-semibold">Payment Confirmed!</span>
                     </div>
                     <p className="text-sm text-gray-400">
-                      Check your email for payment details and contact Jack (+234 814 934 9466) 
-                      or Elvis (+234 806 868 3392) to follow up
+                      Check your email for payment details and contact Jack
+                      (+234 814 934 9466) or Elvis (+234 806 868 3392) to follow
+                      up
                     </p>
                     <p className="text-xs text-gray-500 mt-1">
                       This dialog will close automatically...
